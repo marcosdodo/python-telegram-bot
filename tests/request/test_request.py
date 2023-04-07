@@ -65,7 +65,7 @@ def mocker_factory(
     return make_assertion
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture()
 async def httpx_request():
     async with HTTPXRequest() as rq:
         yield rq
@@ -74,17 +74,35 @@ async def httpx_request():
 @pytest.mark.skipif(
     TEST_WITH_OPT_DEPS, reason="Only relevant if the optional dependency is not installed"
 )
-class TestNoSocks:
+class TestNoSocksHTTP2WithoutRequest:
     async def test_init(self, bot):
         with pytest.raises(RuntimeError, match=r"python-telegram-bot\[socks\]"):
             HTTPXRequest(proxy_url="socks5://foo")
+        with pytest.raises(RuntimeError, match=r"python-telegram-bot\[http2\]"):
+            HTTPXRequest(http_version="2")
 
 
+@pytest.mark.skipif(not TEST_WITH_OPT_DEPS, reason="Optional dependencies not installed")
+class TestHTTP2WithRequest:
+    async def test_http_2_response(self):
+        httpx_request = HTTPXRequest(http_version="2")
+        async with httpx_request:
+            resp = await httpx_request._client.request(
+                url="https://python-telegram-bot.org",
+                method="GET",
+                headers={"User-Agent": httpx_request.USER_AGENT},
+            )
+            assert resp.http_version == "HTTP/2"
+
+
+# I picked not TEST_XXX because that's the default, meaning it will run by default for an end-user
+# who runs pytest.
+@pytest.mark.skipif(not TEST_WITH_OPT_DEPS, reason="No need to run this twice")
 class TestRequestWithoutRequest:
     test_flag = None
 
     @pytest.fixture(autouse=True)
-    def reset(self):
+    def _reset(self):
         self.test_flag = None
 
     async def test_init_import_errors(self, monkeypatch):
@@ -102,9 +120,8 @@ class TestRequestWithoutRequest:
     def test_slot_behaviour(self):
         inst = HTTPXRequest()
         for attr in inst.__slots__:
-            if attr.startswith("__"):
-                attr = f"_{inst.__class__.__name__}{attr}"
-            assert getattr(inst, attr, "err") != "err", f"got extra slot '{attr}'"
+            at = f"_{inst.__class__.__name__}{attr}" if attr.startswith("__") else attr
+            assert getattr(inst, at, "err") != "err", f"got extra slot '{at}'"
         assert len(mro_slots(inst)) == len(set(mro_slots(inst))), "duplicate slot"
 
     async def test_context_manager(self, monkeypatch):
@@ -239,7 +256,7 @@ class TestRequestWithoutRequest:
                 await httpx_request.post(None, None, None)
 
     @pytest.mark.parametrize(
-        "code, exception_class",
+        ("code", "exception_class"),
         [
             (HTTPStatus.FORBIDDEN, Forbidden),
             (HTTPStatus.NOT_FOUND, InvalidToken),
@@ -265,7 +282,7 @@ class TestRequestWithoutRequest:
             await httpx_request.post("", None, None)
 
     @pytest.mark.parametrize(
-        ["exception", "catch_class", "match"],
+        ("exception", "catch_class", "match"),
         [
             (TelegramError("TelegramError"), TelegramError, "TelegramError"),
             (
@@ -321,11 +338,12 @@ class TestRequestWithoutRequest:
         assert self.test_flag == (1, 2, 3, 4)
 
 
+@pytest.mark.skipif(not TEST_WITH_OPT_DEPS, reason="No need to run this twice")
 class TestHTTPXRequestWithoutRequest:
     test_flag = None
 
     @pytest.fixture(autouse=True)
-    def reset(self):
+    def _reset(self):
         self.test_flag = None
 
     def test_init(self, monkeypatch):
@@ -345,7 +363,8 @@ class TestHTTPXRequestWithoutRequest:
         assert request._client.limits == httpx.Limits(
             max_connections=1, max_keepalive_connections=1
         )
-        assert request._client.http2 is True
+        assert request._client.http1 is True
+        assert not request._client.http2
 
         request = HTTPXRequest(
             connection_pool_size=42,
@@ -412,16 +431,6 @@ class TestHTTPXRequestWithoutRequest:
                 headers={"User-Agent": httpx_request.USER_AGENT},
             )
             assert resp.http_version == "HTTP/1.1"
-
-    async def test_http_2_response(self):
-        httpx_request = HTTPXRequest()
-        async with httpx_request:
-            resp = await httpx_request._client.request(
-                url="https://python-telegram-bot.org",
-                method="GET",
-                headers={"User-Agent": httpx_request.USER_AGENT},
-            )
-            assert resp.http_version == "HTTP/2"
 
     async def test_do_request_after_shutdown(self, httpx_request):
         await httpx_request.shutdown()
@@ -554,7 +563,7 @@ class TestHTTPXRequestWithoutRequest:
         assert content == b"content"
 
     @pytest.mark.parametrize(
-        ["raised_class", "expected_class", "expected_message"],
+        ("raised_class", "expected_class", "expected_message"),
         [
             (httpx.TimeoutException, TimedOut, "Timed out"),
             (httpx.ReadError, NetworkError, "httpx.ReadError: message"),
@@ -584,14 +593,15 @@ class TestHTTPXRequestWithoutRequest:
 
         monkeypatch.setattr(httpx.AsyncClient, "request", request)
 
-        with pytest.raises(TimedOut, match="Pool timeout"):
-            async with HTTPXRequest(pool_timeout=0.02) as httpx_request:
+        async with HTTPXRequest(pool_timeout=0.02) as httpx_request:
+            with pytest.raises(TimedOut, match="Pool timeout"):
                 await asyncio.gather(
                     httpx_request.do_request(method="GET", url="URL"),
                     httpx_request.do_request(method="GET", url="URL"),
                 )
 
 
+@pytest.mark.skipif(not TEST_WITH_OPT_DEPS, reason="No need to run this twice")
 class TestHTTPXRequestWithRequest:
     async def test_do_request_wait_for_pool(self, httpx_request):
         """The pool logic is buried rather deeply in httpxcore, so we make actual requests here
