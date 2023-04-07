@@ -42,7 +42,7 @@ from tests.auxil.files import data_file
 from tests.auxil.slots import mro_slots
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture()
 def builder():
     return ApplicationBuilder()
 
@@ -118,15 +118,15 @@ class TestApplicationBuilder:
         assert get_updates_client.timeout == httpx.Timeout(
             connect=5.0, read=5.0, write=5.0, pool=1.0
         )
-        assert not get_updates_client.http1
-        assert get_updates_client.http2 is True
+        assert get_updates_client.http1 is True
+        assert not get_updates_client.http2
 
         client = app.bot.request._client
         assert client.limits == httpx.Limits(max_connections=256, max_keepalive_connections=256)
         assert client.proxies is None
         assert client.timeout == httpx.Timeout(connect=5.0, read=5.0, write=5.0, pool=1.0)
-        assert not client.http1
-        assert client.http2 is True
+        assert client.http1 is True
+        assert not client.http2
 
         assert isinstance(app.update_queue, asyncio.Queue)
         assert isinstance(app.updater, Updater)
@@ -142,7 +142,7 @@ class TestApplicationBuilder:
         assert app.post_stop is None
 
     @pytest.mark.parametrize(
-        "method, description", _BOT_CHECKS, ids=[entry[0] for entry in _BOT_CHECKS]
+        ("method", "description"), _BOT_CHECKS, ids=[entry[0] for entry in _BOT_CHECKS]
     )
     def test_mutually_exclusive_for_bot(self, builder, method, description):
         # First test that e.g. `bot` can't be set if `request` was already set
@@ -160,7 +160,7 @@ class TestApplicationBuilder:
 
     @pytest.mark.parametrize(
         "method",
-        (
+        [
             "connection_pool_size",
             "connect_timeout",
             "pool_timeout",
@@ -170,7 +170,7 @@ class TestApplicationBuilder:
             "bot",
             "updater",
             "http_version",
-        ),
+        ],
     )
     def test_mutually_exclusive_for_request(self, builder, method):
         builder.request(1)
@@ -187,7 +187,7 @@ class TestApplicationBuilder:
 
     @pytest.mark.parametrize(
         "method",
-        (
+        [
             "get_updates_connection_pool_size",
             "get_updates_connect_timeout",
             "get_updates_pool_timeout",
@@ -197,7 +197,7 @@ class TestApplicationBuilder:
             "get_updates_http_version",
             "bot",
             "updater",
-        ),
+        ],
     )
     def test_mutually_exclusive_for_get_updates_request(self, builder, method):
         builder.get_updates_request(1)
@@ -415,7 +415,7 @@ class TestApplicationBuilder:
         assert app.bot is updater.bot
         assert app.update_queue is updater.update_queue
 
-    @pytest.mark.parametrize("input_type", ("bytes", "str", "Path"))
+    @pytest.mark.parametrize("input_type", ["bytes", "str", "Path"])
     def test_all_private_key_input_types(self, builder, bot, input_type):
         private_key = data_file("private.key")
         password = data_file("private_key.password")
